@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "WebSearch|WebFetch|Write|Read|Bash|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "$d = [Console]::In.ReadToEnd() | ConvertFrom-Json; $t = $d.tool_name; $i = $d.tool_input; $det = ''; if ($i.query) { $det = $i.query } elseif ($i.command) { $det = $i.command } elseif ($i.file_path) { $det = (Split-Path -Leaf $i.file_path) } elseif ($i.url) { $det = $i.url } elseif ($i.pattern) { $det = $i.pattern }; if ($det.Length -gt 70) { $det = $det.Substring(0,70) + '...' }; ConvertTo-Json @{systemMessage=\"▶ [$t] $det\"} -Compress"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "ConvertTo-Json @{systemMessage=\"✅ コマンド実行完了\"} -Compress"
+          }
+        ]
+      }
+    ]
+  }
+}

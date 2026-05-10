@@ -1,0 +1,218 @@
+{
+  "keywords": [
+    "AI",
+    "機械学習",
+    "ロボット"
+  ],
+  "generated_at": "2026-04-29T09:33:32.319082",
+  "companies": {
+    "トヨタ自動車": {
+      "company": "トヨタ自動車",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "自動運転",
+        "AI",
+        "ロボット",
+        "電動車",
+        "車"
+      ]
+    },
+    "ファーストリテイリング": {
+      "company": "ファーストリテイリング",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "ロボット",
+        "小売",
+        "データ分析"
+      ]
+    },
+    "オムロン": {
+      "company": "オムロン",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "ロボット",
+        "IoT",
+        "AI",
+        "センサー",
+        "自動化"
+      ]
+    },
+    "ABB": {
+      "company": "ABB",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "ロボット",
+        "自動化",
+        "AI",
+        "産業"
+      ]
+    },
+    "ファナック": {
+      "company": "ファナック",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "ロボット",
+        "NC工作機械",
+        "産業用AI"
+      ]
+    },
+    "ソニーグループ": {
+      "company": "ソニーグループ",
+      "matched_keywords": [
+        "ai",
+        "ロボット"
+      ],
+      "match_score": 66.7,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "センサー",
+        "ロボット",
+        "エンタメ"
+      ]
+    },
+    "東京エレクトロン": {
+      "company": "東京エレクトロン",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "電子・ハイテク",
+      "related_keywords": [
+        "半導体",
+        "製造装置",
+        "AI",
+        "回路",
+        "チップ"
+      ]
+    },
+    "ソフトバンクグループ": {
+      "company": "ソフトバンクグループ",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "IT",
+        "ソフトウェア",
+        "通信",
+        "テクノロジー"
+      ]
+    },
+    "パナソニック": {
+      "company": "パナソニック",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "電子・ハイテク",
+      "related_keywords": [
+        "電子機器",
+        "AI",
+        "IoT",
+        "バッテリー",
+        "半導体"
+      ]
+    },
+    "NTTドコモ": {
+      "company": "NTTドコモ",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "通信",
+        "AI",
+        "5G",
+        "IoT",
+        "データセンター"
+      ]
+    },
+    "村田製作所": {
+      "company": "村田製作所",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "電子部品",
+        "IoT",
+        "5G",
+        "センサー",
+        "AI"
+      ]
+    },
+    "メルカリ": {
+      "company": "メルカリ",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "データ分析",
+        "マーケットプレイス",
+        "テクノロジー"
+      ]
+    },
+    "リクルート": {
+      "company": "リクルート",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "データ分析",
+        "HR",
+        "テクノロジー"
+      ]
+    },
+    "LINE": {
+      "company": "LINE",
+      "matched_keywords": [
+        "ai"
+      ],
+      "match_score": 33.3,
+      "industry": "IT・ソフトウェア",
+      "related_keywords": [
+        "AI",
+        "SNS",
+        "チャットボット",
+        "メッセージ"
+      ]
+    }
+  }
+}
