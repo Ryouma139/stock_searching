@@ -41,9 +41,10 @@ applyTo:
   ↓
 [5] 全情報を統合してMarkdownレポートを生成
   ↓
-[6] /stock_save/企業名_YYYYMMDD.md に保存
+[6] ローカルの `stock_save` フォルダが存在しない場合は作成する
+    → 取得した企業のレポートを `/stock_save/YYYYMMDD_企業名.md` の形式で保存
   ↓
-「✓ 企業名_YYYYMMDD.md を保存しました」
+「✓ YYYYMMDD_企業名.md を保存しました」
   ↓
 [7] notion_save スキルを自動実行 → Notion /stock_reports/ に保存
   ↓
@@ -140,13 +141,15 @@ applyTo:
 
 MD ファイル保存（手順 6）が完了した後、以下の順序でスキルを自動実行する。
 
+
+
 ### [7] notion_save スキルへの委譲
 
 ```js
 console.log(`[7/8] 📓 Notion に保存中...`)
 // notion_save スキルを実行（このスキルでは Notion 操作を行わない）
 invoke('notion_save', {
-  target: savedFilePath,   // 例: stock_save/安川電機_20260504.md
+  target: savedFilePath,   // 例: stock_save/20260504_安川電機.md
 })
 console.log(`[7/8] ✅ Notion 保存完了 → /stock_reports/YYYYMMDD_企業名`)
 ```
@@ -160,7 +163,7 @@ console.log(`[7/8] ✅ Notion 保存完了 → /stock_reports/YYYYMMDD_企業名
 console.log(`[8/8] 🎨 Figma デザインカード生成中...`)
 // figma_contents スキルを実行（このスキルでは Figma 操作を行わない）
 invoke('figma_contents', {
-  target: savedFilePath,   // 例: stock_save/安川電機_20260504.md
+  target: savedFilePath,   // 例: stock_save/20260504_安川電機.md
 })
 console.log(`[8/8] ✅ Figma 保存完了 → figma_contents/YYYY/MM/DD_企業名.png`)
 ```
