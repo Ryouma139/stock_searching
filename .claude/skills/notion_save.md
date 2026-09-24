@@ -67,19 +67,28 @@ description: Save stock report markdown files from stock_save/ to Notion workspa
    console.log(`  [NOTION] Claude Contents/stock_reports ページを確認`)
    ```
 
-   - 3b. 各ファイルについて `Claude Contents/stock_reports` 配下に子ページを作成する
+   - 3b. 各ファイルについて、日付フォルダページ `Claude Contents/stock_reports/YYYYMMDD` を確認・作成する
+     - 日付 `YYYYMMDD` はファイル名（`{企業名}_YYYYMMDD.md`）から取得する
+     - `notion-search` で `stock_reports` 配下に同名ページが存在するか確認し、存在しない場合は `notion-create-pages` で作成する（親: `stock_reports`）
+     - 同じ日付のファイルが複数ある場合は、同じ日付フォルダページを共有する
 
-     ページ名の形式：
+   ```js
+   console.log(`  [NOTION] Claude Contents/stock_reports/${date} ページを確認`)
+   ```
+
+   - 3c. 日付フォルダページ配下に企業ごとの子ページを作成する
+
+     ページ階層の形式：
      ```text
-     Claude Contents/stock_reports/YYYYMMDD_(企業名)
+     Claude Contents/stock_reports/YYYYMMDD/(企業名)
      ```
 
      例：
      ```text
-     Claude Contents/stock_reports/20260504_安川電機
+     Claude Contents/stock_reports/20260504/安川電機
      ```
 
-   - 3c. Markdown の内容を以下のセクション構成で Notion ページに書き込む
+   - 3d. Markdown の内容を以下のセクション構成で Notion ページに書き込む
 
      | MD セクション | Notion ブロック |
      |---|---|
@@ -92,19 +101,19 @@ description: Save stock report markdown files from stock_save/ to Notion workspa
      | 出典リンク | bookmark ブロック |
 
    ```js
-   files.forEach(f => console.log(`  [NOTION] ${f} → Claude Contents/stock_reports/`))
+   files.forEach(f => console.log(`  [NOTION] ${f.path} → Claude Contents/stock_reports/${f.date}/${f.company}`))
    ```
 
 4. 保存完了をユーザーに通知する
 
    ```js
    console.log(`[4/4] ✅ Notion 保存完了 (${savedCount} 件)`)
-   savedFiles.forEach(f => console.log(`  → Claude Contents/stock_reports/${f}`))
+   savedFiles.forEach(f => console.log(`  → Claude Contents/stock_reports/${f.date}/${f.company}`))
    ```
 
 ## 注意
 
 - Notion MCP（`settings.json` の `mcpServers.notion`）の接続と OAuth 認証が必要
 - 未認証の場合は `/mcp` → `notion` → `Authenticate` で認証してから再実行する
-- 同名ページが既に存在する場合はユーザーに確認の上、上書きまたはスキップを選択させる
+- 日付フォルダページ配下に同名の企業ページが既に存在する場合はユーザーに確認の上、上書きまたはスキップを選択させる
 - `stock_save/` フォルダが存在しない場合は `stock-searching` スキルを先に実行するようユーザーに案内する
