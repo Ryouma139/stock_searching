@@ -1,0 +1,14 @@
+{
+  "date": "2026-09-25",
+  "figma_file": "https://www.figma.com/design/6yhlzWG5ExYxWtw45xCcNd",
+  "file_key": "6yhlzWG5ExYxWtw45xCcNd",
+  "note": "Cards created successfully. PNG export requires Figma plan upgrade (MCP rate limit reached on Starter plan).",
+  "cards": [
+    { "company": "アキッパ",         "node_id": "1:2",   "export_path": "25_アキッパ.png" },
+    { "company": "サンメッセ",        "node_id": "1:48",  "export_path": "25_サンメッセ.png" },
+    { "company": "原田工業",          "node_id": "1:94",  "export_path": "25_原田工業.png" },
+    { "company": "小林製薬",          "node_id": "1:140", "export_path": "25_小林製薬.png" },
+    { "company": "イメージ情報開発",  "node_id": "1:186", "export_path": "25_イメージ情報開発.png" }
+  ],
+  "export_instructions": "In Figma, select each card frame, then Export as PNG @2x."
+}
