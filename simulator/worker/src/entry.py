@@ -1,12 +1,14 @@
-"""シミュレーション条件を D1 に保存・一覧取得する Python Worker（任意・雛形）。
+"""D1 の銘柄・株価・シナリオを返す Python Worker API（雛形）。
 
+  GET  /api/tickers?limit=50   急騰記録のある銘柄を人気スコア順に返す
+  GET  /api/prices?ticker=XXX  月次終値（シミュレーターの過去株価モード用）
   GET  /api/scenarios   最新 50 件
   POST /api/scenarios   {"title","mode","ticker","annual_rate","initial","monthly","years","final_value"}
 
 Python Workers はまだ仕様変更が多いので、デプロイ前に公式ドキュメントで API を確認すること。
 """
 import json
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from workers import Response, WorkerEntrypoint
 
@@ -24,9 +26,14 @@ def json_response(data, status=200):
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
-        path = urlparse(request.url).path
+        url = urlparse(request.url)
+        path, qs = url.path, parse_qs(url.query)
         if request.method == "OPTIONS":
             return Response("", headers=HEADERS)
+        if path == "/api/tickers" and request.method == "GET":
+            return await self.tickers(qs)
+        if path == "/api/prices" and request.method == "GET":
+            return await self.prices(qs)
         if path != "/api/scenarios":
             return json_response({"error": "not found"}, 404)
 
@@ -56,3 +63,31 @@ class Default(WorkerEntrypoint):
             return json_response({"ok": True}, 201)
 
         return json_response({"error": "method not allowed"}, 405)
+
+    async def tickers(self, qs):
+        limit = min(max(int(qs.get("limit", ["50"])[0] or 50), 1), 200)
+        result = await self.env.DB.prepare(
+            "SELECT t.ticker, t.name, t.hit_count, t.popularity_score, t.last_hit_date,"
+            " (SELECT change_pct FROM surge_events e WHERE e.ticker = t.ticker"
+            "  ORDER BY e.date DESC LIMIT 1) AS last_change_pct"
+            " FROM tickers t"
+            " WHERE EXISTS (SELECT 1 FROM monthly_prices p WHERE p.ticker = t.ticker)"
+            " ORDER BY t.popularity_score DESC, t.last_hit_date DESC LIMIT ?"
+        ).bind(limit).all()
+        return json_response(result.results.to_py())
+
+    async def prices(self, qs):
+        ticker = qs.get("ticker", [""])[0]
+        if not ticker:
+            return json_response({"error": "ticker is required"}, 400)
+        found = (await self.env.DB.prepare(
+            "SELECT ticker, name FROM tickers WHERE ticker = ?"
+        ).bind(ticker).all()).results.to_py()
+        if not found:
+            return json_response({"error": "unknown ticker"}, 404)
+        result = await self.env.DB.prepare(
+            "SELECT ym AS date, close FROM monthly_prices WHERE ticker = ? ORDER BY ym"
+        ).bind(ticker).all()
+        info = found[0]
+        return json_response({"ticker": info["ticker"], "name": info["name"],
+                              "prices": result.results.to_py()})
