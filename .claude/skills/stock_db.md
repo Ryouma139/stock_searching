@@ -54,7 +54,7 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
 | `前日比率` | number | % | `0.2794`（**小数で保存**。27.94% → 0.2794） |
 | `前日終値（推定）` | number | 円 | `133` |
 | `急騰日` | date | YYYY/MM/DD | `date:急騰日:start` = `2026-09-25`, `date:急騰日:is_datetime` = `0` |
-| `参照回数` | number | - | 株価DB のみ。書き込まない（空のまま） |
+| `参照回数` | number | - | 株価DB のみ。新規追加時は空。同じ銘柄を参照DB に追記するたびに +1 |
 
 ## 手順
 
@@ -117,8 +117,9 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
    - 4a. `notion-query-data-sources`（SQL モード）で、株価DB に同じ `銘柄` の行があるか確認する（急騰日は問わない）
 
      ```sql
-     SELECT url, "date:急騰日:start" FROM "collection://c01b1aab-9648-4c46-bd78-f98e28667d61"
+     SELECT url, "date:急騰日:start", "参照回数" FROM "collection://c01b1aab-9648-4c46-bd78-f98e28667d61"
      WHERE "銘柄" = ?
+     ORDER BY "date:急騰日:start" ASC
      ```
 
    - 4b. 判定結果に応じて追記先を決める
@@ -126,8 +127,8 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
      | 株価DB の状態 | 追記先 |
      |---|---|
      | 同じ `銘柄` の行が無い | **株価DB** に追記 |
-     | 同じ `銘柄` の行がある | **参照DB** に追記（株価DB には追記しない） |
-     | 株価DB または参照DB に同じ `銘柄` かつ同じ `急騰日` の行がすでにある | 追記せずスキップ（同じレポートを再実行したケース） |
+     | 同じ `銘柄` の行がある | 株価DB の `参照回数` を +1 した**後に**、**参照DB** に追記（株価DB に行は追加しない） |
+     | 株価DB または参照DB に同じ `銘柄` かつ同じ `急騰日` の行がすでにある | 追記せずスキップ（同じレポートを再実行したケース）。`参照回数` もカウントしない |
 
      - 参照DB 側の重複確認は次の SQL で行う
 
@@ -136,10 +137,32 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
        WHERE "銘柄" = ? AND "date:急騰日:start" = ?
        ```
 
-     - 1 回の実行で同じ銘柄のページが複数ある場合は `急騰日` の古い順に処理し、先に株価DB へ追記した銘柄は「株価DB に存在する」ものとして扱う（2 件目以降は参照DB へ）
+     - 1 回の実行で同じ銘柄のページが複数ある場合は `急騰日` の古い順に 1 件ずつ処理し、先に株価DB へ追記した銘柄は「株価DB に存在する」ものとして扱う（2 件目以降は参照回数 +1 → 参照DB へ）。このため株価DB への追加は `allow_async: false` で行い、作成された行の URL を控えておく
      - 既存行の上書きはユーザーが明示的に求めた場合のみ `notion-update-page` で行う
 
-   - 4c. 追記先ごとに `notion-create-pages` でまとめて追加する（1 回の呼び出しで複数行可）。プロパティは両 DB 共通
+   - 4c. 参照DB に追記する銘柄は、先に株価DB の `参照回数` をカウントアップする
+
+     - 4a の結果の行（同じ銘柄が株価DB に複数ある場合は `急騰日` が最も古い行）を対象にする
+     - 新しい値 = 現在の `参照回数` + 1（空の場合は `0` とみなし `1` にする）
+     - `notion-update-page` の `update_properties` で書き込む
+
+       ```json
+       {
+         "page_id": "<4a で取得した株価DB 行の url>",
+         "command": "update_properties",
+         "properties": { "参照回数": 1 },
+         "allow_async": false
+       }
+       ```
+
+     - 同じ実行内で同じ銘柄を複数回カウントする場合は、直前に書き込んだ値に +1 する（4a の古い値を使い回さない）
+     - カウントアップに失敗した場合はその銘柄の参照DB への追記も行わず、失敗として報告する
+
+     ```js
+     console.log(`  [株価DB] ${name} 参照回数 ${before ?? 0} → ${after}`)
+     ```
+
+   - 4d. 追記先ごとに `notion-create-pages` でまとめて追加する（1 回の呼び出しで複数行可）。プロパティは両 DB 共通
 
      ```json
      {
@@ -170,7 +193,7 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
 5. 結果をユーザーに通知する
 
    ```js
-   console.log(`[5/5] ✅ 追記完了: 株価DB ${addedMain} 件 / 参照DB ${addedRef} 件 / 重複スキップ ${dup} 件 / テーブルなしスキップ ${skipped} 件`)
+   console.log(`[5/5] ✅ 追記完了: 株価DB ${addedMain} 件 / 参照DB ${addedRef} 件（参照回数カウント ${counted} 件）/ 重複スキップ ${dup} 件 / テーブルなしスキップ ${skipped} 件`)
    skippedPages.forEach(p => console.log(`  ⏭ ${p.title}: ${p.reason}`))
    ```
 
@@ -178,5 +201,5 @@ Notion の `Claude Contens/stock_reports/YYYYMMDD/YYYYMMDD_{企業名}` ペー�
 
 - Notion MCP の接続と OAuth 認証が必要。未認証の場合は `/mcp` → `notion` → `Authenticate` で認証してから再実行する
 - `前日比率` は Notion 側がパーセント表示のため、必ず小数（27.94% → `0.2794`）で書き込む。`27.94` を入れると 2794% と表示される
-- `参照回数` はこのスキルでは書き込まない
+- `参照回数` は株価DB に同じ銘柄が既にあり、参照DB へ追記するときだけ +1 する（新規追加時は空のまま）
 - レポートページが無い場合は、先に `stock_searching` → `notion_save` スキルを実行するようユーザーに案内する
