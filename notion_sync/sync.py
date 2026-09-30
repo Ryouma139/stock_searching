@@ -1,16 +1,23 @@
 """Notion データベース → PostgreSQL 同期スクリプト。
 
-Notion のデータベースごとに PostgreSQL のテーブルを 1 つ用意し、ページ（行）を
-page_id をキーに UPSERT する。テーブルとカラムは Notion のプロパティ定義から
-自動で作成・追加される。
+Notion の表 1 つにつき PostgreSQL のテーブルを 1 つ用意し、表の各行を 1 レコードとして
+UPSERT する。テーブルとカラムは Notion の列（プロパティ／ヘッダー行）から自動で作成・追加される。
+
+対象の指定方法は 2 通り:
+  - ページ指定: ページ内にある表を自動で探して同期する
+      * インラインデータベース（/database で作った表） … 列の型を保って同期、差分同期に対応
+      * シンプルテーブル（/table で作った表）           … 1 行目をヘッダーとして全列 text で同期
+  - データベース指定: データベースを直接同期する
 
   - 通常実行: 前回同期以降に更新されたページだけを取得する（差分同期）
   - --full:   全ページを取得し、Notion 側で削除されたページを archived=true にする
 
 環境変数:
   NOTION_TOKEN         Notion インテグレーションのシークレット（必須）
-  NOTION_DATABASE_IDS  同期する DB の ID。カンマ区切りで複数可。
+  NOTION_PAGE_IDS      表を含むページの ID または URL。カンマ区切りで複数可
+  NOTION_DATABASE_IDS  同期する DB の ID または URL。カンマ区切りで複数可。
                        「ID:テーブル名」でテーブル名を指定できる（省略時は DB タイトルから生成）
+                       ※ NOTION_PAGE_IDS と NOTION_DATABASE_IDS はどちらか一方だけでもよい
   DATABASE_URL         PostgreSQL 接続文字列（例: postgresql://user:pass@host:5432/db）
   PG_SCHEMA            格納先スキーマ（既定: notion）
 """
@@ -43,6 +50,22 @@ BASE_COLUMNS = [
     ("_properties", "jsonb"),
     ("_synced_at", "timestamptz NOT NULL DEFAULT now()"),
 ]
+
+# シンプルテーブル用の固定カラム
+TABLE_BASE_COLUMNS = [
+    ("_row_id", "text PRIMARY KEY"),
+    ("_row_index", "integer"),
+    ("_last_edited_time", "timestamptz"),
+    ("_archived", "boolean NOT NULL DEFAULT false"),
+    ("_synced_at", "timestamptz NOT NULL DEFAULT now()"),
+]
+
+# 子要素をたどってよいブロック（トグル・カラムレイアウトなどの中にある表も探す）
+CONTAINER_BLOCKS = {
+    "column_list", "column", "toggle", "callout", "quote", "synced_block",
+    "bulleted_list_item", "numbered_list_item", "to_do",
+    "heading_1", "heading_2", "heading_3", "tab",
+}
 
 # Notion プロパティ型 → PostgreSQL 型
 PG_TYPES = {
@@ -98,6 +121,18 @@ class NotionClient:
 
     def get_database(self, database_id):
         return self._request("GET", f"/databases/{database_id}")
+
+    def get_page(self, page_id):
+        return self._request("GET", f"/pages/{page_id}")
+
+    def get_block_children(self, block_id):
+        path = f"/blocks/{block_id}/children?page_size=100"
+        while True:
+            data = self._request("GET", path)
+            yield from data["results"]
+            if not data.get("has_more"):
+                return
+            path = f"/blocks/{block_id}/children?page_size=100&start_cursor={data['next_cursor']}"
 
     def query_pages(self, database_id, edited_since=None):
         body = {"page_size": 100}
@@ -166,9 +201,9 @@ def table_name_from_title(title, database_id):
     return truncate_ident(slug or f"db_{database_id.replace('-', '')[:8]}")
 
 
-def build_column_map(schema_props):
+def build_column_map(schema_props, base_columns=BASE_COLUMNS):
     """プロパティ名 → (カラム名, PG 型) の対応を作る。date は終了日カラムも追加。"""
-    used = {c for c, _ in BASE_COLUMNS}
+    used = {c for c, _ in base_columns}
     columns = {}
 
     def unique(name):
@@ -203,9 +238,9 @@ def ensure_meta(conn, schema):
         )""").format(sql.Identifier(schema)))
 
 
-def ensure_table(conn, schema, table, columns):
+def ensure_table(conn, schema, table, columns, base_columns=BASE_COLUMNS):
     tbl = sql.Identifier(schema, table)
-    col_defs = [sql.SQL("{} {}").format(sql.Identifier(c), sql.SQL(t)) for c, t in BASE_COLUMNS]
+    col_defs = [sql.SQL("{} {}").format(sql.Identifier(c), sql.SQL(t)) for c, t in base_columns]
     conn.execute(sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(tbl, sql.SQL(", ").join(col_defs)))
     # format_type は timestamptz を "timestamp with time zone" と返すので、比較用に同じ表記へ正規化する
     existing = dict(conn.execute(
@@ -313,11 +348,141 @@ def sync_database(notion, conn, schema, database_id, table_override, full):
     log.info("  ✅ %d 件 upsert / %d 件 archived", total, archived)
 
 
+def load_state_table(conn, schema, object_id):
+    row = conn.execute(
+        sql.SQL("SELECT table_name FROM {}._sync_state WHERE database_id = %s").format(sql.Identifier(schema)),
+        (object_id,)).fetchone()
+    return row[0] if row else None
+
+
+def save_state(conn, schema, object_id, table):
+    conn.execute(sql.SQL("""
+        INSERT INTO {}._sync_state (database_id, table_name, last_run_at, last_full_at)
+        VALUES (%s, %s, now(), now())
+        ON CONFLICT (database_id) DO UPDATE SET
+            table_name = EXCLUDED.table_name, last_run_at = now(), last_full_at = now()
+        """).format(sql.Identifier(schema)), (object_id, table))
+
+
+# ---------------------------------------------------------- ページ内の表
+
+def find_tables(notion, block_id, context=None):
+    """ページ内のブロックをたどり、インライン DB とシンプルテーブルを見つける。
+
+    戻り値: [("database", block_id, タイトル) | ("table", block, 見出し), ...]
+    シンプルテーブルには名前がないため、直前の見出しを名前の手がかりとして返す。
+    """
+    found, heading = [], context
+    for block in notion.get_block_children(block_id):
+        btype = block["type"]
+        if btype in ("heading_1", "heading_2", "heading_3"):
+            heading = plain_text(block[btype].get("rich_text")) or heading
+        if btype == "child_database":
+            found.append(("database", block["id"], block["child_database"].get("title") or None))
+        elif btype == "table":
+            found.append(("table", block, heading))
+        elif btype in CONTAINER_BLOCKS and block.get("has_children"):
+            found.extend(find_tables(notion, block["id"], heading))
+    return found
+
+
+def build_simple_table_columns(header_cells, width):
+    """ヘッダー行のセル → {列番号: (カラム名, 型)}。空欄は col_N、重複は _2, _3… で補う。"""
+    used, columns = {c for c, _ in TABLE_BASE_COLUMNS}, {}
+    for i in range(width):
+        text = plain_text(header_cells[i]) if header_cells and i < len(header_cells) else None
+        name = (text or f"col_{i + 1}").strip()
+        base, candidate, n = truncate_ident(name, PG_IDENT_MAX_BYTES - 3), truncate_ident(name), 2
+        while candidate in used:
+            candidate, n = f"{base}_{n}", n + 1
+        used.add(candidate)
+        columns[i] = (candidate, "text")
+    return columns
+
+
+def sync_simple_table(notion, conn, schema, block, table):
+    info = block["table"]
+    rows = [b for b in notion.get_block_children(block["id"]) if b["type"] == "table_row"]
+    header = rows[0]["table_row"]["cells"] if info.get("has_column_header") and rows else None
+    body = rows[1:] if header is not None else rows
+    columns = build_simple_table_columns(header, info["table_width"])
+    log.info("▶ シンプルテーブル → %s.%s (%d 列 / %d 行)", schema, table, len(columns), len(body))
+
+    usable = ensure_table(conn, schema, table, columns, TABLE_BASE_COLUMNS)
+    names = ["_row_id", "_row_index", "_last_edited_time", "_archived"] + [c for c, _ in usable.values()]
+    stmt = sql.SQL(
+        "INSERT INTO {tbl} ({cols}, _synced_at) VALUES ({vals}, now()) "
+        "ON CONFLICT (_row_id) DO UPDATE SET {updates}, _synced_at = now()"
+    ).format(
+        tbl=sql.Identifier(schema, table),
+        cols=sql.SQL(", ").join(map(sql.Identifier, names)),
+        vals=sql.SQL(", ").join(sql.Placeholder() * len(names)),
+        updates=sql.SQL(", ").join(
+            sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(n)) for n in names if n != "_row_id"),
+    )
+    values = []
+    for index, row in enumerate(body):
+        cells = row["table_row"]["cells"]
+        values.append([row["id"], index, row["last_edited_time"], False]
+                      + [plain_text(cells[i]) if i < len(cells) else None for i in usable])
+    if values:
+        with conn.cursor() as cur:
+            cur.executemany(stmt, values)
+    cur = conn.execute(
+        sql.SQL("UPDATE {} SET _archived = true, _synced_at = now() "
+                "WHERE NOT _archived AND NOT (_row_id = ANY(%s))").format(sql.Identifier(schema, table)),
+        ([r["id"] for r in body],))
+    save_state(conn, schema, block["id"], table)
+    conn.commit()
+    log.info("  ✅ %d 行 upsert / %d 行 archived", len(values), cur.rowcount)
+
+
+def sync_page(notion, conn, schema, page_id, full):
+    """ページ内の表をすべて同期する。表ごとの失敗は数えて返す。"""
+    page = notion.get_page(page_id)
+    title_prop = next((p for p in page["properties"].values() if p["type"] == "title"), None)
+    page_title = plain_text(title_prop["title"]) if title_prop else None
+    page_title = page_title or f"page_{page_id.replace('-', '')[:8]}"
+    tables = find_tables(notion, page_id)
+    log.info("📄 %s: 表 %d 個を検出", page_title, len(tables))
+
+    failed, used_names = 0, set()
+    for n, (kind, obj, label) in enumerate(tables, 1):
+        object_id = obj if kind == "database" else obj["id"]
+        table = load_state_table(conn, schema, object_id)
+        if not table:
+            table = table_name_from_title(label or (page_title if len(tables) == 1 else f"{page_title}_{n}"),
+                                          object_id)
+            while table in used_names:
+                table = truncate_ident(f"{table}_{n}")
+        used_names.add(table)
+        try:
+            if kind == "database":
+                sync_database(notion, conn, schema, object_id, table, full)
+            else:
+                sync_simple_table(notion, conn, schema, obj, table)
+        except Exception:
+            conn.rollback()
+            failed += 1
+            log.exception("  ❌ 同期失敗: %s (%s)", label or object_id, kind)
+    return failed
+
+
+def parse_id(value):
+    """ID または Notion の URL から 32 桁の ID を取り出す。"""
+    m = re.search(r"([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})(?:[?#/]|$)",
+                  value.strip().lower())
+    return m.group(1) if m else value.strip()
+
+
 def parse_targets(raw):
     targets = []
-    for item in filter(None, (s.strip() for s in raw.split(","))):
-        db_id, _, table = item.partition(":")
-        targets.append((db_id.strip(), table.strip() or None))
+    for item in filter(None, (s.strip() for s in (raw or "").split(","))):
+        # URL の "https:" を区切りと誤解しないよう、最後の ":" より後ろに "/" がなければテーブル名とみなす
+        head, sep, table = item.rpartition(":")
+        if not sep or "/" in table or table.startswith("//"):
+            head, table = item, ""
+        targets.append((parse_id(head), table.strip() or None))
     return targets
 
 
@@ -327,7 +492,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    missing = [k for k in ("NOTION_TOKEN", "NOTION_DATABASE_IDS", "DATABASE_URL") if not os.environ.get(k)]
+    missing = [k for k in ("NOTION_TOKEN", "DATABASE_URL") if not os.environ.get(k)]
+    if not (os.environ.get("NOTION_PAGE_IDS") or os.environ.get("NOTION_DATABASE_IDS")):
+        missing.append("NOTION_PAGE_IDS または NOTION_DATABASE_IDS")
     if missing:
         log.error("環境変数が未設定です: %s", ", ".join(missing))
         return 2
@@ -338,7 +505,14 @@ def main(argv=None):
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         ensure_meta(conn, schema)
         conn.commit()
-        for db_id, table in parse_targets(os.environ["NOTION_DATABASE_IDS"]):
+        for page_id, _ in parse_targets(os.environ.get("NOTION_PAGE_IDS")):
+            try:
+                failed += sync_page(notion, conn, schema, page_id, args.full)
+            except Exception:
+                conn.rollback()
+                failed += 1
+                log.exception("  ❌ ページの読み込み失敗: %s", page_id)
+        for db_id, table in parse_targets(os.environ.get("NOTION_DATABASE_IDS")):
             try:
                 sync_database(notion, conn, schema, db_id, table, args.full)
             except Exception:

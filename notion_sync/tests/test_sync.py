@@ -113,3 +113,80 @@ def test_long_japanese_names_fit_identifier_limit():
 
 def test_parse_targets():
     assert sync.parse_targets("abc, def:stocks ,") == [("abc", None), ("def", "stocks")]
+
+
+# ---------------------------------------------------------- ページ内の表
+
+def cell(text):
+    return [{"plain_text": text}] if text else []
+
+
+def table_row(rid, *texts, edited="2026-09-15T00:00:00.000Z"):
+    return {"id": rid, "type": "table_row", "last_edited_time": edited,
+            "table_row": {"cells": [cell(t) for t in texts]}}
+
+
+class FakePageNotion(FakeNotion):
+    """見出し + シンプルテーブル + トグル内のインライン DB を含むページ。"""
+
+    def __init__(self):
+        super().__init__([page("p1", "安川電機", "2026-09-15T01:00:00.000Z", price=5000)])
+        self.rows = [
+            table_row("r0", "銘柄", "コード", "株価", ""),
+            table_row("r1", "安川電機", "6506", "5000", "メモ1"),
+            table_row("r2", "アスア", "246A", "1200", None),
+        ]
+        self.blocks = {
+            "PAGE": [
+                {"id": "h", "type": "heading_2", "has_children": False,
+                 "heading_2": {"rich_text": cell("監視銘柄一覧")}},
+                {"id": "T1", "type": "table", "has_children": True,
+                 "table": {"table_width": 4, "has_column_header": True, "has_row_header": False}},
+                {"id": "tg", "type": "toggle", "has_children": True, "toggle": {"rich_text": cell("詳細")}},
+            ],
+            "tg": [{"id": DB_ID, "type": "child_database", "has_children": False,
+                    "child_database": {"title": "株ウォッチ DB"}}],
+        }
+
+    def get_page(self, page_id):
+        return {"properties": {"Name": {"type": "title", "title": cell("株まとめ")}}}
+
+    def get_block_children(self, block_id):
+        return iter(self.rows if block_id == "T1" else self.blocks.get(block_id, []))
+
+
+def test_page_with_simple_table_and_inline_db(conn):
+    notion = FakePageNotion()
+    assert sync.sync_page(notion, conn, SCHEMA, "PAGE", full=False) == 0
+
+    assert conn.execute(
+        f'SELECT _row_id, _row_index, "銘柄", "コード", "株価", col_4, _archived '
+        f'FROM {SCHEMA}."監視銘柄一覧" ORDER BY _row_index').fetchall() == [
+        ("r1", 0, "安川電機", "6506", "5000", "メモ1", False),
+        ("r2", 1, "アスア", "246A", "1200", None, False),
+    ]
+    assert conn.execute(f'SELECT "銘柄名" FROM {SCHEMA}."株ウォッチ_db"').fetchall() == [("安川電機",)]
+
+    # 行の削除 + ヘッダー名の変更 → 旧行は archived、新しい列名のカラムが追加される
+    notion.rows = [table_row("r0", "銘柄", "証券コード", "株価", ""), table_row("r2", "アスア", "246A", "1300", None)]
+    assert sync.sync_page(notion, conn, SCHEMA, "PAGE", full=False) == 0
+    assert conn.execute(
+        f'SELECT _row_id, "証券コード", "株価", _archived FROM {SCHEMA}."監視銘柄一覧" ORDER BY _row_id').fetchall() == [
+        ("r1", None, "5000", True),
+        ("r2", "246A", "1300", False),
+    ]
+
+
+def test_simple_table_without_header():
+    cols = sync.build_simple_table_columns(None, 3)
+    assert cols == {0: ("col_1", "text"), 1: ("col_2", "text"), 2: ("col_3", "text")}
+    dup = sync.build_simple_table_columns([cell("a"), cell("a"), cell("_row_id")], 3)
+    assert [c for c, _ in dup.values()] == ["a", "a_2", "_row_id_2"]
+
+
+def test_parse_targets_accepts_urls():
+    url = "https://www.notion.so/ws/My-Page-0123456789abcdef0123456789abcdef?v=1"
+    assert sync.parse_targets(f"{url}, {url}:stocks") == [
+        ("0123456789abcdef0123456789abcdef", None),
+        ("0123456789abcdef0123456789abcdef", "stocks"),
+    ]

@@ -30,6 +30,7 @@ jobs:
       - name: 同期実行
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PAGE_IDS: ${{ vars.NOTION_PAGE_IDS }}
           NOTION_DATABASE_IDS: ${{ vars.NOTION_DATABASE_IDS }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PG_SCHEMA: ${{ vars.PG_SCHEMA || 'notion' }}
