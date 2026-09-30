@@ -80,12 +80,12 @@ description: Save stock report markdown files from stock_save/ to Notion workspa
 
      ページ階層の形式：
      ```text
-     Claude Contents/stock_reports/YYYYMMDD/(企業名)
+     Claude Contents/stock_reports/YYYYMMDD/YYYYMMDD_(企業名)
      ```
 
      例：
      ```text
-     Claude Contents/stock_reports/20260504/安川電機
+     Claude Contents/stock_reports/20260504/20260504_安川電機
      ```
 
    - 3d. Markdown の内容を以下のセクション構成で Notion ページに書き込む
@@ -101,19 +101,19 @@ description: Save stock report markdown files from stock_save/ to Notion workspa
      | 出典リンク | bookmark ブロック |
 
    ```js
-   files.forEach(f => console.log(`  [NOTION] ${f.path} → Claude Contents/stock_reports/${f.date}/${f.company}`))
+   files.forEach(f => console.log(`  [NOTION] ${f.path} → Claude Contents/stock_reports/${f.date}/${f.date}_${f.company}`))
    ```
 
 4. 保存完了をユーザーに通知する
 
    ```js
    console.log(`[4/4] ✅ Notion 保存完了 (${savedCount} 件)`)
-   savedFiles.forEach(f => console.log(`  → Claude Contents/stock_reports/${f.date}/${f.company}`))
+   savedFiles.forEach(f => console.log(`  → Claude Contents/stock_reports/${f.date}/${f.date}_${f.company}`))
    ```
 
 ## 注意
 
 - Notion MCP（`settings.json` の `mcpServers.notion`）の接続と OAuth 認証が必要
 - 未認証の場合は `/mcp` → `notion` → `Authenticate` で認証してから再実行する
-- 日付フォルダページ配下に同名の企業ページが既に存在する場合はユーザーに確認の上、上書きまたはスキップを選択させる
+- 日付フォルダページ配下に同名の企業ページ（`YYYYMMDD_企業名`）が既に存在する場合はユーザーに確認の上、上書きまたはスキップを選択させる
 - `stock_save/` フォルダが存在しない場合は `stock-searching` スキルを先に実行するようユーザーに案内する
