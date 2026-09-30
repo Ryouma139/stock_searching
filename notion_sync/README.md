@@ -1,6 +1,7 @@
 # Notion DB → PostgreSQL 同期
 
 Notion のデータベースを PostgreSQL に移行し、その後も定期的に自動同期する仕組みです。
+設計の背景や検討内容（クラウド DB・GitHub Actions・Cloudflare など）は [GUIDE.md](GUIDE.md) にまとめています。
 
 - 初回実行で全ページを取り込み（= 移行）、以降は **毎時の差分同期** と **毎日の全件同期** を GitHub Actions で自動実行します
 - **Notion の表 1 つ → PostgreSQL のテーブル 1 つ、表の 1 行 → 1 レコード** として移行します
