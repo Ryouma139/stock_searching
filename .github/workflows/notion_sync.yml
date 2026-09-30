@@ -1,0 +1,42 @@
+name: Notion → PostgreSQL 同期
+
+on:
+  schedule:
+    - cron: "7 * * * *"     # 毎時: 差分同期
+    - cron: "47 17 * * *"   # 毎日 02:47 JST: 全件同期（削除ページを archived に）
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "全件同期する"
+        type: boolean
+        default: false
+
+concurrency:
+  group: notion-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: notion_sync/requirements.txt
+      - run: pip install -r notion_sync/requirements.txt
+      - name: 同期実行
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_PAGE_IDS: ${{ vars.NOTION_PAGE_IDS }}
+          NOTION_DATABASE_IDS: ${{ vars.NOTION_DATABASE_IDS }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PG_SCHEMA: ${{ vars.PG_SCHEMA || 'notion' }}
+        run: |
+          if [ "${{ github.event.schedule }}" = "47 17 * * *" ] || [ "${{ inputs.full }}" = "true" ]; then
+            python notion_sync/sync.py --full
+          else
+            python notion_sync/sync.py
+          fi
