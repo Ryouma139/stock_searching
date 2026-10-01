@@ -140,12 +140,18 @@ const page = await WebFetch(kabutanUrl)
 // ページテキストから終値・前日終値を抽出
 ```
 
+> ⚠️ リモートコンテナ環境では kabutan.jp もプロキシによりブロックされる場合がある。
+
 **方法③: Yahoo Finance へ WebFetch（最後の手段）**
 
 ```js
 // 方法①②でも取得できない場合のみ試みる
 const page = await WebFetch(url)  // url = https://finance.yahoo.co.jp/quote/...
 ```
+
+> ⚠️ リモートコンテナ環境では finance.yahoo.co.jp もプロキシによりブロックされる場合がある。
+
+**実績**: リモートコンテナ環境では方法①（WebSearch）のみアクセス可能なことが確認済み。方法②③は試行するが失敗してもスキップして続行する。
 
 取得できない項目は `null` として扱い、照合をスキップする。
 
