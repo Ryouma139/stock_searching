@@ -113,16 +113,38 @@ const url = `https://finance.yahoo.co.jp/quote/${ticker}${suffix}`
 console.log(`[6/9] 🔍 Yahoo Finance クロスチェック中... ${url}`)
 ```
 
-### 6b. WebFetch でページ取得・パース
+### 6b. 株価データ取得（優先順位付きフォールバック）
+
+以下の順に試み、最初に成功した方法を使う。
+
+**方法①: WebSearch（推奨・最も安定）**
 
 ```js
-const page = await WebFetch(url)
-// 以下の値を HTML/テキストからパース
+// WebSearch で終値・前日比を検索（プロキシ制限なし）
+const query = `${ticker} 株価 終値 ${today}`  // 例: "4840 株価 終値 2026-10-01"
+const results = await WebSearch(query)
+// 検索結果のスニペットから終値・前日終値をパース
 const yahoo = {
-  close:      /* 終値（現在値） */,
-  prevClose:  /* 前日終値 */,
-  date:       /* 取得日時（JST） */,
+  close:     /* スニペットから抽出 */,
+  prevClose: /* スニペットから抽出 */,
+  date:      today,
 }
+```
+
+**方法②: 株探（kabutan.jp）へ WebFetch**
+
+```js
+// 方法① でパース失敗した場合
+const kabutanUrl = `https://kabutan.jp/stock/kabuka?code=${tickerCode}`
+const page = await WebFetch(kabutanUrl)
+// ページテキストから終値・前日終値を抽出
+```
+
+**方法③: Yahoo Finance へ WebFetch（最後の手段）**
+
+```js
+// 方法①②でも取得できない場合のみ試みる
+const page = await WebFetch(url)  // url = https://finance.yahoo.co.jp/quote/...
 ```
 
 取得できない項目は `null` として扱い、照合をスキップする。
@@ -157,13 +179,15 @@ if (diff <= 1 && pct <= 0.0005) {
 ⚠️  [株価修正] 前日終値: ¥1,800 → ¥1,820（Yahoo Finance より修正）
 ```
 
-### 6e. WebFetch が失敗した場合
+### 6e. 全手段が失敗した場合
 
-ネットワークエラー・ページ非公開などで取得できない場合は以下を出力してスキップし、手順 [7] へ進む。
+方法①②③すべてで株価データを取得・パースできない場合は以下を出力してスキップし、手順 [7] へ進む。
 
 ```text
-⚠️  [6/9] Yahoo Finance クロスチェックをスキップ（取得失敗: {理由}）。WebSearch で取得した値をそのまま使用します。
+⚠️  [6/9] クロスチェックをスキップ（全手段で取得失敗: {理由}）。WebSearch で取得した値をそのまま使用します。
 ```
+
+> **注意**: `finance.yahoo.co.jp` はリモートコンテナ環境でプロキシによりブロックされる場合がある。その場合は方法①（WebSearch）が最も信頼性が高い。
 
 ---
 
