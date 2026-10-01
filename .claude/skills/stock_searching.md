@@ -21,9 +21,10 @@ applyTo:
 5. それらキーワードに紐づく**業界ニュース・トレンド**を収集
 6. 企業固有ニュースに加え業界動向も統合
 7. すべての情報をMarkdownファイル形式で整理
-8. `/stock_save` フォルダに自動保存
-9. `notion_save` スキルに委譲して Notion `Claude Contents/stock_reports` へ保存
-10. `figma_contents` スキルに委譲して Figma デザインカードを生成・PNG 保存
+8. **Yahoo Finance でクロスチェック**（終値・前日終値・取得日時を照合し、差異があればMDを修正）
+9. `/stock_save` フォルダに自動保存
+10. `notion_save` スキルに委譲して Notion `Claude Contens/stock_reports` へ保存
+11. `figma_contents` スキルに委譲して Figma デザインカードを生成・PNG 保存
 
 ## 実行フロー
 
@@ -45,16 +46,22 @@ applyTo:
   ↓
 [5] 全情報を統合してMarkdownレポートを生成
   ↓
-[6] ローカルの `stock_save` フォルダが存在しない場合は作成する
+[6] Yahoo Finance クロスチェック（株価データ検証）
+    → 銘柄コードから Yahoo Finance URL を構築して WebFetch
+    → 終値・前日終値・取得日時を照合
+    ✅ 一致 → 次へ
+    ⚠️ 差異あり → MDの株価データを修正してから次へ
+  ↓
+[7] ローカルの `stock_save` フォルダが存在しない場合は作成する
     → 取得した企業のレポートを `/stock_save/YYYYMMDD_企業名.md` の形式で保存
   ↓
 「✓ YYYYMMDD_企業名.md を保存しました」
   ↓
-[7] notion_save スキルを自動実行 → Notion /stock_reports/ に保存
+[8] notion_save スキルを自動実行 → Notion /stock_reports/ に保存
   ↓
 「✓ Notion /stock_reports/YYYYMMDD_企業名 を作成しました」
   ↓
-[8] figma_contents スキルを自動実行 → Figma デザインカード生成・PNG 保存
+[9] figma_contents スキルを自動実行 → Figma デザインカード生成・PNG 保存
   ↓
 「✓ figma_contents/YYYY/MM/DD_企業名.png を保存しました」
 ```
@@ -84,6 +91,81 @@ TZ=JST-9 date '+%Y-%m-%d %u'   # 例: 2026-09-26 6（%u: 1=月 … 6=土, 7=日�
 📅 本日（YYYY-MM-DD・〇曜日）は東京証券取引所の休場日（土日／祝日名／年末年始）のため、株価は更新されません。
 検索は行わずに終了します。次の営業日に再度実行してください。
 ```
+
+## [6] Yahoo Finance クロスチェック（株価データ検証）
+
+MD生成（手順 [5]）完了後、ファイル保存（手順 [7]）の**前**に必ず実行する。
+
+### 6a. 銘柄コードと取引所サフィックスの特定
+
+`## 基本情報` から取得したティッカー・上場市場をもとに Yahoo Finance URL 用のサフィックスを決定する。
+
+| 上場市場 | サフィックス | URL 例 |
+|---------|------------|--------|
+| 東証（プライム・スタンダード・グロース） | `.T` | `https://finance.yahoo.co.jp/quote/625A.T` |
+| 名証（メイン・ネクスト） | `.N` | `https://finance.yahoo.co.jp/quote/624A.N` |
+| 福証・札証 | `.F` / `.S` | 同様 |
+
+```js
+// 例: ティッカー "625A"、東証グロース → url = "https://finance.yahoo.co.jp/quote/625A.T"
+const suffix = market.includes("名証") ? ".N" : ".T"
+const url = `https://finance.yahoo.co.jp/quote/${ticker}${suffix}`
+console.log(`[6/9] 🔍 Yahoo Finance クロスチェック中... ${url}`)
+```
+
+### 6b. WebFetch でページ取得・パース
+
+```js
+const page = await WebFetch(url)
+// 以下の値を HTML/テキストからパース
+const yahoo = {
+  close:      /* 終値（現在値） */,
+  prevClose:  /* 前日終値 */,
+  date:       /* 取得日時（JST） */,
+}
+```
+
+取得できない項目は `null` として扱い、照合をスキップする。
+
+### 6c. MD の株価データと照合
+
+| 照合項目 | MD の値 | Yahoo Finance の値 | 判定 |
+|---------|--------|-------------------|------|
+| 終値（現在値） | `close_md` | `yahoo.close` | 差額 ≦ ¥1 かつ ≦ 0.05% なら ✅ |
+| 前日終値 | `prevClose_md` | `yahoo.prevClose` | 同上 |
+| 取得日時 | `date_md` | `yahoo.date` | 日付（YYYY-MM-DD）が一致なら ✅ |
+
+```js
+const diff = Math.abs(close_md - yahoo.close)
+const pct  = diff / yahoo.close
+if (diff <= 1 && pct <= 0.0005) {
+  console.log(`[6/9] ✅ 株価データ一致 (終値: ¥${yahoo.close})`)
+} else {
+  console.warn(`[6/9] ⚠️  差異検出: MD=¥${close_md} / Yahoo=¥${yahoo.close} → MD を修正`)
+  // MD の該当箇所を Yahoo Finance の値で上書きし、出典に Yahoo Finance を追加
+}
+```
+
+### 6d. 差異が見つかった場合の処置
+
+- `### 現在値（終値）` テーブルの値を Yahoo Finance の取得値で**上書き**する
+- 出典リストに `https://finance.yahoo.co.jp/quote/{ティッカー}{サフィックス}` を追加する
+- ログに差異内容を出力する（元の値と修正後の値を併記）
+
+```text
+⚠️  [株価修正] 終値: ¥2,520 → ¥2,580（Yahoo Finance より修正）
+⚠️  [株価修正] 前日終値: ¥1,800 → ¥1,820（Yahoo Finance より修正）
+```
+
+### 6e. WebFetch が失敗した場合
+
+ネットワークエラー・ページ非公開などで取得できない場合は以下を出力してスキップし、手順 [7] へ進む。
+
+```text
+⚠️  [6/9] Yahoo Finance クロスチェックをスキップ（取得失敗: {理由}）。WebSearch で取得した値をそのまま使用します。
+```
+
+---
 
 ## 出力ファイル形式
 
@@ -183,29 +265,29 @@ MD ファイル保存（手順 6）が完了した後、以下の順序でスキ
 
 
 
-### [7] notion_save スキルへの委譲
+### [8] notion_save スキルへの委譲
 
 ```js
-console.log(`[7/8] 📓 Notion に保存中...`)
+console.log(`[8/9] 📓 Notion に保存中...`)
 // notion_save スキルを実行（このスキルでは Notion 操作を行わない）
 invoke('notion_save', {
   target: savedFilePath,   // 例: stock_save/20260504_安川電機.md
 })
-console.log(`[7/8] ✅ Notion 保存完了 → /stock_reports/YYYYMMDD_企業名`)
+console.log(`[8/9] ✅ Notion 保存完了 → /stock_reports/YYYYMMDD_企業名`)
 ```
 
 - Notion MCP が未接続の場合は `notion_save` スキルがエラーを通知する
-- `notion_save` のエラーが発生しても手順 8（Figma）は続行する
+- `notion_save` のエラーが発生しても手順 9（Figma）は続行する
 
-### [8] figma_contents スキルへの委譲
+### [9] figma_contents スキルへの委譲
 
 ```js
-console.log(`[8/8] 🎨 Figma デザインカード生成中...`)
+console.log(`[9/9] 🎨 Figma デザインカード生成中...`)
 // figma_contents スキルを実行（このスキルでは Figma 操作を行わない）
 invoke('figma_contents', {
   target: savedFilePath,   // 例: stock_save/20260504_安川電機.md
 })
-console.log(`[8/8] ✅ Figma 保存完了 → figma_contents/YYYY/MM/DD_企業名.png`)
+console.log(`[9/9] ✅ Figma 保存完了 → figma_contents/YYYY/MM/DD_企業名.png`)
 ```
 
 - Figma MCP が未接続の場合は `figma_contents` スキルがエラーを通知する
