@@ -113,17 +113,45 @@ const url = `https://finance.yahoo.co.jp/quote/${ticker}${suffix}`
 console.log(`[6/9] 🔍 Yahoo Finance クロスチェック中... ${url}`)
 ```
 
-### 6b. WebFetch でページ取得・パース
+### 6b. 株価データ取得（優先順位付きフォールバック）
+
+以下の順に試み、最初に成功した方法を使う。
+
+**方法①: WebSearch（推奨・最も安定）**
 
 ```js
-const page = await WebFetch(url)
-// 以下の値を HTML/テキストからパース
+// WebSearch で終値・前日比を検索（プロキシ制限なし）
+const query = `${ticker} 株価 終値 ${today}`  // 例: "4840 株価 終値 2026-10-01"
+const results = await WebSearch(query)
+// 検索結果のスニペットから終値・前日終値をパース
 const yahoo = {
-  close:      /* 終値（現在値） */,
-  prevClose:  /* 前日終値 */,
-  date:       /* 取得日時（JST） */,
+  close:     /* スニペットから抽出 */,
+  prevClose: /* スニペットから抽出 */,
+  date:      today,
 }
 ```
+
+**方法②: 株探（kabutan.jp）へ WebFetch**
+
+```js
+// 方法① でパース失敗した場合
+const kabutanUrl = `https://kabutan.jp/stock/kabuka?code=${tickerCode}`
+const page = await WebFetch(kabutanUrl)
+// ページテキストから終値・前日終値を抽出
+```
+
+> ⚠️ リモートコンテナ環境では kabutan.jp もプロキシによりブロックされる場合がある。
+
+**方法③: Yahoo Finance へ WebFetch（最後の手段）**
+
+```js
+// 方法①②でも取得できない場合のみ試みる
+const page = await WebFetch(url)  // url = https://finance.yahoo.co.jp/quote/...
+```
+
+> ⚠️ リモートコンテナ環境では finance.yahoo.co.jp もプロキシによりブロックされる場合がある。
+
+**実績**: リモートコンテナ環境では方法①（WebSearch）のみアクセス可能なことが確認済み。方法②③は試行するが失敗してもスキップして続行する。
 
 取得できない項目は `null` として扱い、照合をスキップする。
 
@@ -157,13 +185,17 @@ if (diff <= 1 && pct <= 0.0005) {
 ⚠️  [株価修正] 前日終値: ¥1,800 → ¥1,820（Yahoo Finance より修正）
 ```
 
-### 6e. WebFetch が失敗した場合
+### 6e. 全手段が失敗した場合
 
-ネットワークエラー・ページ非公開などで取得できない場合は以下を出力してスキップし、手順 [7] へ進む。
+方法①②③すべてで株価データを取得・パースできない場合は、**MD ファイルを保存（手順 [7]）して処理を終了する**。Notion 保存（手順 [8]）および Figma カード生成（手順 [9]）は実行しない。
 
 ```text
-⚠️  [6/9] Yahoo Finance クロスチェックをスキップ（取得失敗: {理由}）。WebSearch で取得した値をそのまま使用します。
+⚠️  [6/9] クロスチェック失敗（全手段で取得不可: {理由}）。
+    株価データの正確性を確認できないため、Notion・Figma への連携をスキップします。
+    MD ファイルは stock_save/ に保存済みです。手動で確認後、/notion_save で保存してください。
 ```
+
+> **注意**: `finance.yahoo.co.jp` および `kabutan.jp` はリモートコンテナ環境でプロキシによりブロックされる場合がある。その場合は方法①（WebSearch）が最も信頼性が高い。
 
 ---
 
@@ -267,6 +299,8 @@ MD ファイル保存（手順 6）が完了した後、以下の順序でスキ
 
 ### [8] notion_save スキルへの委譲
 
+> **前提条件**: 手順 [6] のクロスチェックが成功（✅ 一致 または ⚠️ 差異修正済み）の場合のみ実行する。クロスチェックが全手段失敗（6e）の場合はスキップする。
+
 ```js
 console.log(`[8/9] 📓 Notion に保存中...`)
 // notion_save スキルを実行（このスキルでは Notion 操作を行わない）
@@ -280,6 +314,8 @@ console.log(`[8/9] ✅ Notion 保存完了 → /stock_reports/YYYYMMDD_企業名
 - `notion_save` のエラーが発生しても手順 9（Figma）は続行する
 
 ### [9] figma_contents スキルへの委譲
+
+> **前提条件**: 手順 [6] のクロスチェックが成功した場合のみ実行する。クロスチェックが全手段失敗（6e）の場合はスキップする。
 
 ```js
 console.log(`[9/9] 🎨 Figma デザインカード生成中...`)
