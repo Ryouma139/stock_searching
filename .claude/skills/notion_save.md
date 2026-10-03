@@ -60,11 +60,20 @@ description: Save stock report markdown files from stock_save/ to Notion workspa
    console.log(`[3/4] 📓 Notion MCP 接続中...`)
    ```
 
-   - 3a. `Claude Contents/stock_reports` ページが存在するか `notion-search` で確認する
-     - 存在しない場合は `notion-create-pages` で自動作成する（親: `Claude Contents`）
+   - 3a. `stock_reports` ページは固定 ID で直接参照する（検索・作成は不要）
+
+     | 定数 | 値 |
+     |---|---|
+     | `STOCK_REPORTS_PAGE_ID` | `3562e8c9-228c-8131-be94-deec59b4f022` |
+     | `CLAUDE_CONTENS_PAGE_ID` | `3502e8c9-228c-80b8-b30d-d00ff67f0f13` |
+     | `stock_reports` URL | `https://app.notion.com/p/stock_reports-3562e8c9228c8131be94deec59b4f022` |
+
+     **重要**: `notion-search` で `stock_reports` を検索したり `notion-create-pages` で新規作成したりしてはいけない。  
+     必ず上記の固定 ID (`3562e8c9-228c-8131-be94-deec59b4f022`) を親ページとして使用すること。  
+     重複ページ作成防止のため、この ID は変更しないこと。
 
    ```js
-   console.log(`  [NOTION] Claude Contents/stock_reports ページを確認`)
+   console.log(`  [NOTION] stock_reports 固定ID: 3562e8c9-228c-8131-be94-deec59b4f022`)
    ```
 
    - 3b. 各ファイルについて、日付フォルダページ `Claude Contents/stock_reports/YYYYMMDD` を確認・作成する
