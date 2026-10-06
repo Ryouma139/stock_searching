@@ -66,6 +66,66 @@ applyTo:
 「✓ figma_contents/YYYY/MM/DD_企業名.png を保存しました」
 ```
 
+## [自動タスク] 急騰銘柄選定クロスチェック（必須）
+
+> **適用条件**: スクリーニングで「本日の急騰銘柄Top N」を選定する自動タスク時に必ず実施する。単一企業指定の場合は [0] へスキップ。
+
+急騰銘柄の**選定誤り**は全レポートに波及する致命的ミスとなる。必ず複数ソースで確認してから企業を確定すること。
+
+### Step A-1: 第1ソースでランキング取得
+
+```js
+// 例: "日本株 急騰ランキング 本日 +10%以上 YYYY-MM-DD"
+const results1 = await WebSearch(`東証 急騰銘柄 ${today} 値上がり率ランキング site:kabutan.jp OR site:minkabu.jp OR site:nikkei.com`)
+// → 銘柄コード・企業名・終値・騰落率のリストを抽出
+```
+
+### Step A-2: 第2ソースで独立クロスチェック（必須）
+
+```js
+// 別ソースで同日のランキングを独立取得
+const results2 = await WebSearch(`${today} 株価 値上がり率 ランキング 東証グロース スタンダード site:finance.yahoo.co.jp OR site:investing.com OR site:traders.co.jp`)
+```
+
+### Step A-3: 2ソースの照合ルール
+
+| 照合結果 | 対応 |
+|---------|------|
+| 両ソースで銘柄・騰落率が一致（±2%以内） | ✅ 選定確定 |
+| 片方にしかない銘柄 | ⚠️ 第3ソース（WebSearch with ticker code）で個別確認後に判断 |
+| 騰落率が大幅乖離（一方が+20%、他方が-5%など） | ❌ 採用不可。個別検索で実際の値を確認 |
+| 2ソース両方に出現しない銘柄 | ❌ 採用不可 |
+
+```js
+// 例: 照合処理
+for (const stock of candidates1) {
+  const match = candidates2.find(s => s.ticker === stock.ticker)
+  if (!match) {
+    // 第3ソースで個別確認
+    const verify = await WebSearch(`${stock.ticker} 株価 ${today} 終値 騰落率`)
+    stock.verified = verify.surgeRate >= 10  // +10%未満なら除外
+  } else {
+    const rateDiff = Math.abs(stock.surgeRate - match.surgeRate)
+    stock.verified = rateDiff <= 2  // 2%以内なら一致とみなす
+  }
+}
+const confirmed = candidates1.filter(s => s.verified).slice(0, TOP_N)
+```
+
+### Step A-4: 選定結果の明示
+
+クロスチェック後、確定した銘柄リストをログ出力してから各社のレポート作成へ進む。
+
+```text
+📊 クロスチェック済み 急騰銘柄 Top 5（YYYY-MM-DD）
+  1. 〇〇〇〇 (XXXX.T) +XX.XX% ✅ 2ソース確認済み
+  2. 〇〇〇〇 (XXXX.T) +XX.XX% ✅ 2ソース確認済み
+  3. 〇〇〇〇 (XXXX.T) +XX.XX% ✅ 3ソース確認済み（要追加確認のため）
+  ⚠️ 除外: 〇〇〇〇 (XXXX.T) ソース間不一致（+20% vs -7%）
+```
+
+---
+
 ## [0] 市場休場日チェック（最初に必ず実行）
 
 WebSearch などの検索を行う**前に**、日本時間（JST）の今日の日付と曜日を取得し、東京証券取引所の休場日かどうかを判定する。

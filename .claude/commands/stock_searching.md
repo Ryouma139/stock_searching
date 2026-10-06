@@ -27,6 +27,15 @@ applyTo:
 ```
 ユーザー: 「〇〇（企業名）の株について」
   ↓
+【自動タスクで急騰銘柄Top Nを選定する場合のみ】
+[A] 急騰銘柄ランキングを第1ソースで取得（WebSearch）
+  ↓
+[B] 必ず第2ソースで独立クロスチェック（WebSearch）
+    ✅ 2ソース一致 → 選定確定
+    ⚠️ 片方のみ・乖離あり → 第3ソースで個別確認
+    ❌ 下落銘柄・圏外 → 除外
+    → クロスチェック済みの確定Top Nリストを出力してから次へ
+  ↓
 [1] 株価・基本情報を検索（WebSearch）
   ↓
 [2] 最新ニュースを検索（WebSearch）
@@ -38,16 +47,21 @@ applyTo:
   ↓
 [5] 全情報を統合してMarkdownレポートを生成
   ↓
-[6] /stock_save/企業名_YYYYMMDD.md に保存
-   
+[6] Yahoo Finance クロスチェック（個別株価データ検証）
+    → 終値・前日終値を別ソースで照合
+    ✅ 一致 → 次へ
+    ⚠️ 差異あり → MDの株価データを修正してから次へ
+    ❌ 全手段失敗 → MD保存のみ、Notion/Figmaスキップ
+  ↓
+[7] /stock_save/企業名_YYYYMMDD.md に保存
   ↓
 「✓ 企業名_YYYYMMDD.md を保存しました」
   ↓
-[7] notion_save スキルを自動実行 → Notion /stock_reports/ に保存
+[8] notion_save スキルを自動実行 → Notion /stock_reports/ に保存
   ↓
 「✓ Notion /stock_reports/YYYYMMDD_企業名 を作成しました」
   ↓
-[8] figma_contents スキルを自動実行 → Figma デザインカード生成・PNG 保存
+[9] figma_contents スキルを自動実行 → Figma デザインカード生成・PNG 保存
   ↓
 「✓ figma_contents/YYYY/MM/DD_企業名.png を保存しました」
 ```
